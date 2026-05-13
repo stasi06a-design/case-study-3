@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Knowledge Hub Monitor{% endblock %}
+
+{% block content %}
+
+<!-- Page header -->
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h4 class="mb-0 fw-bold">
+        <i class="bi bi-speedometer2 me-2"></i>System Dashboard
+    </h4>
+    <div class="d-flex align-items-center gap-3">
+        <!-- API health indicator -->
+        {% if api_healthy %}
+            <span class="badge bg-success fs-6">
+                <i class="bi bi-check-circle me-1"></i>API Online
+            </span>
+        {% else %}
+            <span class="badge bg-danger fs-6">
+                <i class="bi bi-x-circle me-1"></i>API Offline
+            </span>
+        {% endif %}
+        <span class="text-muted small">Last updated: {{ now }}</span>
+    </div>
+</div>
+
+<!-- Latest metric cards -->
+<div class="row g-3 mb-4">
+    {% set card_icons = {
+        'cpu':          'cpu',
+        'memory':       'memory',
+        'disk':         'hdd',
+        'network_sent': 'arrow-up-circle',
+        'network_recv': 'arrow-down-circle',
+        'boot_time':    'clock-history'
+    } %}
+
+    {% for metric_name, label in metric_labels.items() %}
+        <div class="col-6 col-md-4 col-xl-2">
+            <div class="card h-100 shadow-sm metric-card
+                {% if metric_name in ['cpu', 'memory', 'disk'] and latest.get(metric_name) %}
+                    {% set val = latest[metric_name]['value'] %}
+                    {% if val >= 90 %}border-danger
+                    {% elif val >= 75 %}border-warning
+                    {% else %}border-success{% endif %}
+                {% endif %}">
+                <div class="card-body text-center">
+                    <div class="metric-icon mb-2">
+                        <i class="bi bi-{{ card_icons[metric_name] }} fs-3 text-primary"></i>
+                    </div>
+                    <div class="metric-label text-muted small mb-1">{{ label }}</div>
+                    {% if latest.get(metric_name) %}
+                        <div class="metric-value fw-bold fs-4">
+                            {{ "%.1f"|format(latest[metric_name]['value']) }}
+                            <span class="fs-6 text-muted">{{ metric_units[metric_name] }}</span>
+                        </div>
+                        <div class="text-muted small mt-1">
+                            {{ latest[metric_name]['hostname'] }}
+                        </div>
+                    {% else %}
+                        <div class="metric-value fw-bold fs-4 text-muted">—</div>
+                        <div class="text-muted small mt-1">No data</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    {% endfor %}
+</div>
+
+<!-- Charts row: CPU, Memory, Disk -->
+<div class="row g-3">
+    {% for metric_name in ['cpu', 'memory', 'disk'] %}
+        <div class="col-12 col-lg-4">
+            <div class="card shadow-sm h-100">
+                <div class="card-header bg-white fw-semibold">
+                    <i class="bi bi-graph-up me-2 text-primary"></i>
+                    {{ metric_labels[metric_name] }} over time
+                </div>
+                <div class="card-body">
+                    {% if chart_data[metric_name]['labels'] %}
+                        <canvas id="chart-{{ metric_name }}" height="200"></canvas>
+                    {% else %}
+                        <div class="d-flex align-items-center justify-content-center h-100 text-muted">
+                            <div class="text-center">
+                                <i class="bi bi-bar-chart-line fs-2 mb-2 d-block"></i>
+                                No data yet
+                            </div>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    {% endfor %}
+</div>
+
+{% endblock %}
+
+
+{% block scripts %}
+<script>
+    // Chart data passed from Flask — already structured, no extra API calls needed
+    const chartData = {{ chart_data | tojson }};
+
+    const chartColours = {
+        cpu:    { border: '#0d6efd', background: 'rgba(13,110,253,0.1)'  },
+        memory: { border: '#198754', background: 'rgba(25,135,84,0.1)'   },
+        disk:   { border: '#ffc107', background: 'rgba(255,193,7,0.1)'   }
+    };
+
+    ['cpu', 'memory', 'disk'].forEach(function(metric) {
+        const canvas = document.getElementById('chart-' + metric);
+        if (!canvas) return;  // no data — canvas not rendered
+
+        const data = chartData[metric];
+        const colour = chartColours[metric];
+
+        new Chart(canvas, {
+            type: 'line',
+            data: {
+                labels: data.labels,
+                datasets: [{
+                    label: metric.toUpperCase(),
+                    data: data.values,
+                    borderColor: colour.border,
+                    backgroundColor: colour.background,
+                    borderWidth: 2,
+                    pointRadius: 3,
+                    tension: 0.3,
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    x: {
+                        ticks: {
+                            maxTicksLimit: 6,
+                            maxRotation: 0,
+                            font: { size: 10 }
+                        }
+                    },
+                    y: {
+                        beginAtZero: true,
+                        max: 100,
+                        ticks: { font: { size: 10 } }
+                    }
+                }
+            }
+        });
+    });
+</script>
+{% endblock %}

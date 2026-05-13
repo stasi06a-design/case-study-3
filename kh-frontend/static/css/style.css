@@ -1,0 +1,37 @@
+/* Knowledge Hub Monitor — custom styles */
+
+body {
+    background-color: #f8f9fa;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+main {
+    flex: 1;
+}
+
+.footer {
+    font-size: 0.8rem;
+}
+
+/* Metric cards */
+.metric-card {
+    border-width: 2px;
+    transition: transform 0.15s ease;
+}
+
+.metric-card:hover {
+    transform: translateY(-2px);
+}
+
+.metric-value {
+    line-height: 1.1;
+}
+
+/* Table improvements */
+.table th {
+    font-size: 0.8rem;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+}
