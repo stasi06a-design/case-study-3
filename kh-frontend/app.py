@@ -2,25 +2,33 @@
 app.py - Knowledge Hub Monitoring Frontend
 Serves the web dashboard for the monitoring application.
 Retrieves data from the kh-api backend and renders HTML pages.
+Authentication via Microsoft Entra ID (OAuth 2.0 / OIDC).
 
 Routes:
     GET /           - Redirect to dashboard
-    GET /dashboard  - Overview: latest metrics per host, API health
-    GET /metrics    - Filterable table of all stored measurements
-    GET /health     - Frontend health check (JSON)
+    GET /dashboard  - Overview: latest metrics per host, API health [AUTH REQUIRED]
+    GET /metrics    - Filterable table of all stored measurements [AUTH REQUIRED]
+    GET /health     - Frontend health check (JSON) [PUBLIC]
+    GET /login      - Initiates Entra ID OAuth flow [PUBLIC]
+    GET /callback   - Handles OAuth callback from Microsoft [PUBLIC]
+    GET /logout     - Clears session and logs out of Microsoft SSO [PUBLIC]
 """
 
 import os
 import logging
+import functools
 from datetime import datetime
 
+import msal
 import requests as http_client
 from dotenv import load_dotenv
-from flask import Flask, render_template, request, redirect, url_for, jsonify
+from flask import (Flask, render_template, request, redirect,
+                   url_for, jsonify, session)
 
 load_dotenv()
 
 app = Flask(__name__)
+app.secret_key = os.getenv('FLASK_SECRET_KEY', 'dev-secret-change-in-production')
 
 os.makedirs('logs', exist_ok=True)
 logging.basicConfig(
@@ -29,7 +37,15 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
-API_BASE_URL = os.getenv('API_BASE_URL', 'http://localhost:8000')
+# ── Configuration ──────────────────────────────────────────────────────────────
+API_BASE_URL        = os.getenv('API_BASE_URL', 'http://localhost:8000')
+AZURE_CLIENT_ID     = os.getenv('AZURE_CLIENT_ID')
+AZURE_CLIENT_SECRET = os.getenv('AZURE_CLIENT_SECRET')
+AZURE_TENANT_ID     = os.getenv('AZURE_TENANT_ID')
+
+AUTHORITY    = "https://login.microsoftonline.com/common"
+REDIRECT_URI = "http://localhost:5000/callback"
+SCOPES       = ["User.Read"]
 
 METRIC_UNITS = {
     'cpu':          '%',
@@ -49,6 +65,36 @@ METRIC_LABELS = {
     'boot_time':    'Uptime'
 }
 
+
+# ── MSAL helper ────────────────────────────────────────────────────────────────
+
+def _build_msal_app():
+    """Create and return an MSAL ConfidentialClientApplication."""
+    return msal.ConfidentialClientApplication(
+        AZURE_CLIENT_ID,
+        authority=AUTHORITY,
+        client_credential=AZURE_CLIENT_SECRET
+    )
+
+
+# ── Authentication decorator ───────────────────────────────────────────────────
+
+def login_required(f):
+    """Decorator that protects routes from unauthenticated access.
+
+    Checks for 'user' in the Flask session. If absent, stores the
+    requested path in session['next'] and redirects to /login.
+    """
+    @functools.wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user' not in session:
+            session['next'] = request.path
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+# ── API communication ──────────────────────────────────────────────────────────
 
 def fetch_from_api(endpoint, params=None):
     """Make a GET request to the backend API.
@@ -76,6 +122,81 @@ def fetch_from_api(endpoint, params=None):
         return None, f"Unexpected error: {str(e)}"
 
 
+# ── Authentication routes ──────────────────────────────────────────────────────
+
+@app.route('/login')
+def login():
+    """Initiate the Entra ID OAuth 2.0 Authorisation Code Flow.
+
+    Builds the Microsoft login URL via MSAL and stores the flow
+    state in the session for CSRF verification in /callback.
+    """
+    msal_app = _build_msal_app()
+    flow = msal_app.initiate_auth_code_flow(
+        scopes=SCOPES,
+        redirect_uri=REDIRECT_URI
+    )
+    session['flow'] = flow
+    logging.info("Auth flow initiated, redirecting to Microsoft login")
+    return redirect(flow['auth_uri'])
+
+
+@app.route('/callback')
+def callback():
+    """Handle the OAuth callback from Microsoft.
+
+    Exchanges the authorisation code for tokens, validates the
+    response, and stores user claims in the session.
+    """
+    flow = session.pop('flow', None)
+
+    if not flow:
+        logging.warning("Callback received with no flow in session")
+        return redirect(url_for('login'))
+
+    try:
+        msal_app = _build_msal_app()
+        result = msal_app.acquire_token_by_auth_code_flow(
+            flow,
+            request.args
+        )
+    except Exception as e:
+        logging.error(f"Token acquisition failed: {str(e)}")
+        return redirect(url_for('login'))
+
+    if 'error' in result:
+        logging.warning(f"Auth error: {result.get('error')}: {result.get('error_description')}")
+        return redirect(url_for('login'))
+
+    claims = result.get('id_token_claims', {})
+    session['user'] = {
+        'name':               claims.get('name', 'Unknown User'),
+        'preferred_username': claims.get('preferred_username', ''),
+        'oid':                claims.get('oid', '')
+    }
+
+    logging.info(f"User authenticated: {session['user']['preferred_username']}")
+
+    next_url = session.pop('next', url_for('dashboard'))
+    return redirect(next_url)
+
+
+@app.route('/logout')
+def logout():
+    """Clear the Flask session and terminate the Microsoft SSO session."""
+    preferred_username = session.get('user', {}).get('preferred_username', '')
+    session.clear()
+    logging.info(f"User logged out: {preferred_username}")
+
+    logout_url = (
+        f"https://login.microsoftonline.com/common/oauth2/v2.0/logout"
+        f"?post_logout_redirect_uri={url_for('login', _external=True)}"
+    )
+    return redirect(logout_url)
+
+
+# ── Application routes ─────────────────────────────────────────────────────────
+
 @app.route('/')
 def index():
     """Redirect root to dashboard."""
@@ -84,7 +205,7 @@ def index():
 
 @app.route('/health')
 def health():
-    """Frontend health check endpoint. Used by container monitoring in Task 5."""
+    """Frontend health check. Public — no authentication required."""
     return jsonify({
         'status': 'ok',
         'service': 'kh-frontend',
@@ -93,39 +214,33 @@ def health():
 
 
 @app.route('/dashboard')
+@login_required
 def dashboard():
-    """Main overview page.
+    """Main overview page. Requires authentication."""
+    current_user = session['user']
 
-    Fetches the latest reading for each metric and the API health status.
-    Renders metric summary cards and a time-series chart for cpu, memory and disk.
-    Falls back to error page if the API is unreachable.
-    """
-    # Check API health
     health_data, health_error = fetch_from_api('/health')
     api_healthy = health_data is not None
 
-    # Fetch recent measurements for charts and latest values (limit 100)
     data, error = fetch_from_api('/metrics', params={'limit': 100})
 
     if error and not api_healthy:
         logging.warning("Dashboard rendered in degraded state — API unreachable")
-        return render_template('error.html', error=error), 503
+        return render_template('error.html', error=error, current_user=current_user), 503
 
     measurements = data.get('measurements', []) if data else []
 
-    # Compute latest value per metric across all measurements
     latest = {}
     for m in measurements:
         metric = m['metric']
         if metric not in latest:
-            latest[metric] = m  # measurements are newest-first
+            latest[metric] = m
 
-    # Build chart data for cpu, memory, disk (reverse to chronological order)
     chart_metrics = ['cpu', 'memory', 'disk']
     chart_data = {}
     for metric in chart_metrics:
         series = [m for m in measurements if m['metric'] == metric]
-        series.reverse()  # oldest first for chart
+        series.reverse()
         chart_data[metric] = {
             'labels': [m['timestamp'] for m in series],
             'values': [m['value'] for m in series]
@@ -138,20 +253,17 @@ def dashboard():
         api_healthy=api_healthy,
         metric_labels=METRIC_LABELS,
         metric_units=METRIC_UNITS,
-        now=datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+        now=datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"),
+        current_user=current_user
     )
 
 
 @app.route('/metrics')
+@login_required
 def metrics():
-    """Detailed metrics table with optional filters.
+    """Detailed metrics table with optional filters. Requires authentication."""
+    current_user = session['user']
 
-    Query parameters:
-        hostname (str): filter by hostname
-        metric (str):   filter by metric name
-
-    Falls back to error page if the API is unreachable.
-    """
     hostname = request.args.get('hostname', '')
     metric_filter = request.args.get('metric', '')
 
@@ -164,11 +276,10 @@ def metrics():
     data, error = fetch_from_api('/metrics', params=params)
 
     if error:
-        return render_template('error.html', error=error), 503
+        return render_template('error.html', error=error, current_user=current_user), 503
 
     measurements = data.get('measurements', []) if data else []
 
-    # Collect unique hostnames for the filter dropdown
     all_data, _ = fetch_from_api('/metrics', params={'limit': 500})
     all_measurements = all_data.get('measurements', []) if all_data else []
     hostnames = sorted(set(m['hostname'] for m in all_measurements))
@@ -181,7 +292,8 @@ def metrics():
         metric_labels=METRIC_LABELS,
         selected_hostname=hostname,
         selected_metric=metric_filter,
-        count=len(measurements)
+        count=len(measurements),
+        current_user=current_user
     )
 
 
