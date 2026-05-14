@@ -1,0 +1,59 @@
+services:
+
+  # ── Backend API ─────────────────────────────────────────────────────────────
+  kh-api:
+    build: ./kh-api
+    container_name: kh-api
+    ports:
+      - "8000:8000"           # Exposed to host for debugging — internal containers use kh-api:8000
+    environment:
+      - DB_BACKEND=sqlite      # Use SQLite locally — no Azure dependency needed
+      - SQLITE_DB=/data/metrics.db  # Path inside container, mapped to named volume below
+    volumes:
+      - api-data:/data         # Persists the SQLite database across container restarts
+    networks:
+      - kh-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s        # Give the app time to start before first check
+
+  # ── Web Frontend ─────────────────────────────────────────────────────────────
+  kh-frontend:
+    build: ./kh-frontend
+    container_name: kh-frontend
+    ports:
+      - "5000:5000"            # Exposed to host — staff browsers connect here
+    environment:
+      - API_BASE_URL=http://kh-api:8000   # Uses Docker internal DNS — not the Azure App Service URL
+      - AZURE_CLIENT_ID=${AZURE_CLIENT_ID}
+      - AZURE_CLIENT_SECRET=${AZURE_CLIENT_SECRET}
+      - AZURE_TENANT_ID=${AZURE_TENANT_ID}
+      - FLASK_SECRET_KEY=${FLASK_SECRET_KEY}
+    depends_on:
+      - kh-api                 # Wait for kh-api to start before starting frontend
+    networks:
+      - kh-network
+
+  # ── Metrics Collector ────────────────────────────────────────────────────────
+  kh-monitor:
+    build: ./kh-monitor
+    container_name: kh-monitor
+    environment:
+      - API_URL=http://kh-api:8000        # Uses Docker internal DNS
+      - COLLECT_INTERVAL=60               # Seconds between metric collections
+    depends_on:
+      - kh-api
+    networks:
+      - kh-network
+
+# ── Network ────────────────────────────────────────────────────────────────────
+networks:
+  kh-network:
+    driver: bridge             # User-defined bridge — enables DNS resolution by service name
+
+# ── Volumes ────────────────────────────────────────────────────────────────────
+volumes:
+  api-data:                    # Persists kh-api SQLite database
