@@ -44,7 +44,7 @@ AZURE_CLIENT_SECRET = os.getenv('AZURE_CLIENT_SECRET')
 AZURE_TENANT_ID     = os.getenv('AZURE_TENANT_ID')
 
 AUTHORITY    = "https://login.microsoftonline.com/common"
-REDIRECT_URI = "http://localhost:5000/callback"
+REDIRECT_URI = os.getenv('REDIRECT_URI', 'http://localhost:5000/callback')
 SCOPES       = ["User.Read"]
 
 METRIC_UNITS = {
