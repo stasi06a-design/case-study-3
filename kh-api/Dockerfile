@@ -20,4 +20,8 @@ RUN mkdir -p /data
 # Document the port the application listens on
 EXPOSE 8000
 
+RUN groupadd -r appuser && useradd -r -g appuser appuser \
+    && chown -R appuser:appuser /app
+USER appuser
+
 CMD ["python", "app.py"]

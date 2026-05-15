@@ -15,4 +15,9 @@ RUN chmod +x run.sh
 # Create data directory for local SQLite fallback
 RUN mkdir -p /app/data
 
+RUN groupadd -r appuser && useradd -r -g appuser appuser \
+    && groupadd -f docker && usermod -aG docker appuser \
+    && chown -R appuser:appuser /app
+USER appuser
+
 CMD ["sh", "run.sh"]

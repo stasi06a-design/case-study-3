@@ -11,4 +11,8 @@ COPY . .
 
 EXPOSE 5000
 
+RUN groupadd -r appuser && useradd -r -g appuser appuser \
+    && chown -R appuser:appuser /app
+USER appuser
+
 CMD ["python", "app.py"]
