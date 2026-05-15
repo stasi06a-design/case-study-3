@@ -44,6 +44,8 @@ services:
     environment:
       - API_URL=http://kh-api:8000        # Uses Docker internal DNS
       - COLLECT_INTERVAL=60               # Seconds between metric collections
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       - kh-api
     networks:

@@ -246,6 +246,22 @@ def dashboard():
             'values': [m['value'] for m in series]
         }
 
+    # Fetch container metrics — filter for container_ metric types
+    container_data, _ = fetch_from_api('/metrics', params={'limit': 500})
+    container_measurements = container_data.get('measurements', []) if container_data else []
+    container_metrics = [m for m in container_measurements
+                        if m['metric'].startswith('container_')]
+
+    # Get latest value per container per metric
+    container_latest = {}
+    for m in container_metrics:
+        key = (m['hostname'], m['metric'])
+        if key not in container_latest:
+            container_latest[key] = m
+
+    # Get unique container names
+    container_names = sorted(set(m['hostname'] for m in container_metrics))
+
     return render_template(
         'dashboard.html',
         latest=latest,
@@ -254,7 +270,9 @@ def dashboard():
         metric_labels=METRIC_LABELS,
         metric_units=METRIC_UNITS,
         now=datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"),
-        current_user=current_user
+        current_user=current_user,
+        container_latest=container_latest,
+        container_names=container_names
     )
 
 

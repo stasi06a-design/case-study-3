@@ -30,7 +30,9 @@ SQL_USERNAME = os.getenv('SQL_USERNAME', '')
 SQL_PASSWORD = os.getenv('SQL_PASSWORD', '')
 SQLITE_DB = os.getenv('SQLITE_DB', 'metrics.db')
 
-VALID_METRICS = ["cpu", "memory", "disk", "network_sent", "network_recv", "boot_time"]
+VALID_METRICS = ["cpu", "memory", "disk", "network_sent", "network_recv", "boot_time",
+                 "container_cpu", "container_memory", "container_net_recv",
+                 "container_net_sent", "container_status"]
 
 
 def get_connection():

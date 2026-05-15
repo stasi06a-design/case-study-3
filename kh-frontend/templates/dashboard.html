@@ -92,6 +92,70 @@
     {% endfor %}
 </div>
 
+<!-- Container monitoring section -->
+{% if container_names %}
+<div class="row g-3 mt-2">
+    <div class="col-12">
+        <div class="card shadow-sm">
+            <div class="card-header bg-white fw-semibold">
+                <i class="bi bi-boxes me-2 text-primary"></i>
+                Container Status
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover table-striped mb-0 small">
+                        <thead class="table-dark">
+                            <tr>
+                                <th>Container</th>
+                                <th class="text-center">Status</th>
+                                <th class="text-end">CPU</th>
+                                <th class="text-end">Memory</th>
+                                <th class="text-end">Net Received</th>
+                                <th class="text-end">Net Sent</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for name in container_names %}
+                            {% set status = container_latest.get((name, 'container_status')) %}
+                            {% set cpu = container_latest.get((name, 'container_cpu')) %}
+                            {% set mem = container_latest.get((name, 'container_memory')) %}
+                            {% set net_recv = container_latest.get((name, 'container_net_recv')) %}
+                            {% set net_sent = container_latest.get((name, 'container_net_sent')) %}
+                            <tr>
+                                <td>
+                                    <i class="bi bi-box me-1 text-secondary"></i>
+                                    {{ name }}
+                                </td>
+                                <td class="text-center">
+                                    {% if status and status['value'] == 1 %}
+                                        <span class="badge bg-success">Running</span>
+                                    {% else %}
+                                        <span class="badge bg-danger">Stopped</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-end">
+                                    {% if cpu %}{{ "%.2f"|format(cpu['value']) }} %{% else %}—{% endif %}
+                                </td>
+                                <td class="text-end">
+                                    {% if mem %}{{ "%.1f"|format(mem['value']) }} MB{% else %}—{% endif %}
+                                </td>
+                                <td class="text-end">
+                                    {% if net_recv %}{{ "%.2f"|format(net_recv['value']) }} MB{% else %}—{% endif %}
+                                </td>
+                                <td class="text-end">
+                                    {% if net_sent %}{{ "%.2f"|format(net_sent['value']) }} MB{% else %}—{% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 {% endblock %}
 
 
