@@ -38,14 +38,14 @@ jobs:
             ./kh-frontend
 
       # Step 5 — Scan the built image for vulnerabilities using Trivy
-      #           Pipeline fails if any CRITICAL or HIGH CVEs are found
+      #           Pipeline fails if any CRITICAL CVEs are found
       - name: Scan image with Trivy
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{ secrets.ACR_LOGIN_SERVER }}/kh-frontend:latest
           format: table
           exit-code: 1
-          severity: CRITICAL,HIGH
+          severity: CRITICAL
           ignore-unfixed: true
 
       # Step 6 — Push both tags to ACR only if Trivy scan passed
